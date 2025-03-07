@@ -334,9 +334,8 @@ int main() {
     
         // Parse and validate limit
         std::string limitStr = req.get_param_value("limit");
-        int limit;
-        try {
-            limit = std::stoi(limitStr);
+        int limit = std::stoi(limitStr);;
+        try { 
             if (limit <= 0)
                 throw std::invalid_argument("Limit must be positive\n");
         } catch (const std::exception &e) {
@@ -421,7 +420,7 @@ int main() {
     
         // Send the JSON response
         res.status = 200;
-        std::cout << "GET /messages: Returned " + limit + " Messages Successfully\n";
+        std::cout << "GET /messages: Returned " << limit << " Messages Successfully\n";
         res.set_content(jsonArray.dump(), "application/json");
     });
     
@@ -451,7 +450,7 @@ int main() {
         if (rc != SQLITE_OK) {
             sqlite3_finalize(stmt);
             res.status = 500;
-            std::cout << "GET /device: Failed to bind port: " + std::string(sqlite3_errmsg(db)) + "\n";s
+            std::cout << "GET /device: Failed to bind port: " + std::string(sqlite3_errmsg(db)) + "\n";
             res.set_content("GET /device: Failed to bind port: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
             return;
         }
