@@ -2,8 +2,9 @@ Requirements:
 C++ 20
 g++
 CMAKE
+Docker 
 Google Test 
-optional: (something for UI) , (docker)
+optional: (something for UI) 
 
 To install the dependencies, open bash on the computer and type:
 ```

@@ -7,9 +7,10 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Install dependencies: SQLite, and SOCAT
 RUN apt-get update && apt-get install -y \
     sqlite3 \
+    libsqlite3-dev \
     socat
 
 # Set working directory
@@ -19,7 +20,7 @@ WORKDIR /app
 COPY . .
 
 # Build C++ server
-RUN g++ -std=c++20 -o server server.cpp
+RUN g++ -std=c++20 -o server server.cpp -lsqlite3
 
 # Run server
 CMD ["./server"]
