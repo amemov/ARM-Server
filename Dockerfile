@@ -20,7 +20,7 @@ WORKDIR /app
 COPY . .
 
 # Build C++ server
-RUN g++ -std=c++20 -o server server.cpp -lsqlite3
+RUN g++ -std=c++20 -o server server.cpp -lsqlite3 -Inlohmann
 
 # Run server
 CMD ["./server"]

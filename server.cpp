@@ -306,25 +306,286 @@ int main() {
     //httplib::SSLServer svr;
 
     // Commands
+    // TO DO: Add some log messages for server driver pgm that the function worked
+
     svr.Get("/start", [](const httplib::Request &, httplib::Response &res) {
+
+        // No errors encountered - return 200
         res.set_content("'/start' got triggered\n", "text/plain");
     });
 
     svr.Get("/stop", [](const httplib::Request &, httplib::Response &res) {
         res.set_content("'/stop' got triggered\n", "text/plain");
+
+        // No errors encountered - return 200
+        res.status = 200;
     });
     
-    // check how to get it working. everything else works
-    svr.Get("/messages?limit=[limit]", [](const httplib::Request &, httplib::Response &res) {
-        res.set_content("'/messages?limit=[limit]' got triggered\n", "text/plain");
+    // HTTP GET /messages endpoint with filtering by Port and Frequency
+    // Returns JSON with message
+    svr.Get("/messages", [&](const httplib::Request &req, httplib::Response &res) {
+        // Check for limit parameter
+        if (!req.has_param("limit")) {
+            res.status = 500;
+            std::cout << "GET /messages?limit=[limit]: Missing 'limit' parameter\n";
+            res.set_content("GET /messages?limit=[limit]: Missing 'limit' parameter\n", "text/plain");
+            return;
+        }
+    
+        // Parse and validate limit
+        std::string limitStr = req.get_param_value("limit");
+        int limit;
+        try {
+            limit = std::stoi(limitStr);
+            if (limit <= 0)
+                throw std::invalid_argument("Limit must be positive\n");
+        } catch (const std::exception &e) {
+            res.status = 500;
+            std::cout << "GET /messages?limit=[limit]: Invalid 'limit' parameter: " + std::string(e.what()) + "\n";
+            res.set_content("GET /messages?limit=[limit]: Invalid 'limit' parameter: " + std::string(e.what()) + "\n", "text/plain");
+            return;
+        }
+    
+        // Prepare SQL query with placeholders for Port, Frequency, and Limit
+        std::string sql = "SELECT Pressure, Temperature, Velocity, Timestamp FROM SensorData "
+                          "WHERE Port = ? AND Frequency = ? ORDER BY Timestamp DESC LIMIT ?;";
+        sqlite3_stmt *stmt;
+        int rc = sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            res.status = 500;
+            std::cout << "GET /messages?limit=[limit]: Database error: " + std::string(sqlite3_errmsg(db)) + "\n";
+            res.set_content("GET /messages?limit=[limit]: Database error: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            return;
+        }
+    
+        // Bind port, frequency, and limit values
+        rc = sqlite3_bind_text(stmt, 1, portName.c_str(), -1, SQLITE_STATIC);
+        if (rc != SQLITE_OK) {
+            res.status = 500;
+            std::cout << "GET /messages: Failed to bind port: " + std::string(sqlite3_errmsg(db)) + "\n";
+            res.set_content("GET /messages: Failed to bind port: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            sqlite3_finalize(stmt);
+            return;
+        }
+        rc = sqlite3_bind_int(stmt, 2, freq);
+        if (rc != SQLITE_OK) {
+            res.status = 500;
+            std::cout << "GET /messages: Failed to bind frequency: " + std::string(sqlite3_errmsg(db)) + "\n";
+            res.set_content("GET /messages: Failed to bind frequency: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            sqlite3_finalize(stmt);
+            return;
+        }
+        rc = sqlite3_bind_int(stmt, 3, limit);
+        if (rc != SQLITE_OK) {
+            res.status = 500;
+            std::cout << "GET /messages: Failed to bind limit: " + std::string(sqlite3_errmsg(db)) + "\n";
+            res.set_content("GET /messages: Failed to bind limit: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            sqlite3_finalize(stmt);
+            return;
+        }
+    
+        // Fetch results safely and build JSON array
+        nlohmann::json jsonArray = nlohmann::json::array();
+        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+            // Retrieve BLOB pointers safely
+            const void* blobPressure = sqlite3_column_blob(stmt, 0);
+            const void* blobTemperature = sqlite3_column_blob(stmt, 1);
+            const void* blobVelocity = sqlite3_column_blob(stmt, 2);
+    
+            // Ensure all sensor BLOBs are valid; if not, skip this row.
+            if (!blobPressure || !blobTemperature || !blobVelocity) {
+                continue;
+            }
+    
+            __fp16 pressure = *reinterpret_cast<const __fp16*>(blobPressure);
+            __fp16 temperature = *reinterpret_cast<const __fp16*>(blobTemperature);
+            __fp16 velocity = *reinterpret_cast<const __fp16*>(blobVelocity);
+            int64_t timestamp = sqlite3_column_int64(stmt, 3);
+    
+            nlohmann::json jsonObj;
+            jsonObj["pressure"] = static_cast<float>(pressure);
+            jsonObj["temperature"] = static_cast<float>(temperature);
+            jsonObj["velocity"] = static_cast<float>(velocity);
+            jsonObj["timestamp"] = timestamp;
+            jsonArray.push_back(jsonObj);
+        }
+    
+        if (rc != SQLITE_DONE) {
+            res.status = 500;
+            res.set_content("Database query error: " +
+                            std::string(sqlite3_errmsg(db)), "text/plain");
+            sqlite3_finalize(stmt);
+            return;
+        }
+        sqlite3_finalize(stmt);
+    
+        // Send the JSON response
+        res.status = 200;
+        std::cout << "GET /messages: Returned " + limit + " Messages Successfully\n";
+        res.set_content(jsonArray.dump(), "application/json");
     });
-
-    svr.Get("/device", [](const httplib::Request &, httplib::Response &res) {
-        res.set_content("'/device' got triggered\n", "text/plain");
+    
+    // Returs device's metadata
+    svr.Get("/device", [&](const httplib::Request &req, httplib::Response &res) {
+        nlohmann::json responseJson;
+    
+        // Build current configuration from your variables.
+        responseJson["curr_config"] = {
+            {"frequency", freq},
+            {"debug", (debug != 0)}
+        };
+    
+        // Prepare a query to retrieve the last 10 sensor messages for this device.
+        std::string query = "SELECT Pressure, Temperature, Velocity FROM SensorData WHERE Port = ? AND Frequency = ? ORDER BY Timestamp DESC LIMIT 10;";
+        sqlite3_stmt *stmt;
+        int rc = sqlite3_prepare_v2(db, query.c_str(), -1, &stmt, nullptr);
+        if (rc != SQLITE_OK) {
+            res.status = 500;
+            std::cout << "GET /device: Database error on query: " + std::string(sqlite3_errmsg(db)) + "\n";
+            res.set_content("GET /device: Database error on query: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            return;
+        }
+    
+        // Bind the Port and Frequency values.
+        rc = sqlite3_bind_text(stmt, 1, portName.c_str(), -1, SQLITE_STATIC);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(stmt);
+            res.status = 500;
+            std::cout << "GET /device: Failed to bind port: " + std::string(sqlite3_errmsg(db)) + "\n";s
+            res.set_content("GET /device: Failed to bind port: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            return;
+        }
+        rc = sqlite3_bind_int(stmt, 2, freq);
+        if (rc != SQLITE_OK) {
+            sqlite3_finalize(stmt);
+            res.status = 500;
+            std::cout << "GET /device: Failed to bind frequency: " + std::string(sqlite3_errmsg(db)) + "\n";
+            res.set_content("GET /device: Failed to bind frequency: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            return;
+        }
+    
+        // Variables to accumulate averages and capture the latest message.
+        int count = 0;
+        double sumPressure = 0.0, sumTemperature = 0.0, sumVelocity = 0.0;
+        float latestPressure = 0.0f, latestTemperature = 0.0f, latestVelocity = 0.0f;
+        bool latestSet = false;
+    
+        // Process each row from the query.
+        while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
+            // Retrieve BLOB pointer safely
+            const void* blobPressure = sqlite3_column_blob(stmt, 0);
+            const void* blobTemperature = sqlite3_column_blob(stmt, 1);
+            const void* blobVelocity = sqlite3_column_blob(stmt, 2);
+            if (blobPressure && blobTemperature && blobVelocity) {
+                __fp16 p = *reinterpret_cast<const __fp16*>(blobPressure);
+                __fp16 t = *reinterpret_cast<const __fp16*>(blobTemperature);
+                __fp16 v = *reinterpret_cast<const __fp16*>(blobVelocity);
+                float fp = static_cast<float>(p);
+                float ft = static_cast<float>(t);
+                float fv = static_cast<float>(v);
+    
+                // The first row is the most recent (latest) message.
+                if (!latestSet) {
+                    latestPressure = fp;
+                    latestTemperature = ft;
+                    latestVelocity = fv;
+                    latestSet = true;
+                }
+                sumPressure += fp;
+                sumTemperature += ft;
+                sumVelocity += fv;
+                count++;
+            }
+        }
+    
+        if (rc != SQLITE_DONE) {
+            sqlite3_finalize(stmt);
+            res.status = 500;
+            std::cout << "GET /device: Query error: " + std::string(sqlite3_errmsg(db)) + "\n";
+            res.set_content("GET /device: Query error: " + std::string(sqlite3_errmsg(db)) + "\n", "text/plain");
+            return;
+        }
+        sqlite3_finalize(stmt);
+    
+        nlohmann::json meanLast10, latest;
+        if (count > 0) {
+            meanLast10 = {
+                {"pressure", sumPressure / count},
+                {"temperature", sumTemperature / count},
+                {"velocity", sumVelocity / count}
+            };
+            latest = {
+                {"pressure", latestPressure},
+                {"temperature", latestTemperature},
+                {"velocity", latestVelocity}
+            };
+        } else {
+            // No messages exist, so return null values.
+            meanLast10 = {
+                {"pressure", nullptr},
+                {"temperature", nullptr},
+                {"velocity", nullptr}
+            };
+            latest = {
+                {"pressure", nullptr},
+                {"temperature", nullptr},
+                {"velocity", nullptr}
+            };
+        }
+    
+        // Assemble the final JSON response.
+        responseJson["mean_last_10"] = meanLast10;
+        responseJson["latest"] = latest;
+    
+        // Send the JSON response.
+        std::cout << "GET /device: Returned Metadata Successfully\n";
+        res.set_content("GET /device: Returned Metadata Successfully\n", "text/plain");
+        res.status = 200;
+        res.set_content(responseJson.dump(), "application/json");
     });
+    
 
     // TODO: PUT CONFIGURE
-
+    svr.Put("/configure", [&](const httplib::Request &req, httplib::Response &res) {
+        try {
+            // Parse the JSON body from the request.
+            auto jsonBody = nlohmann::json::parse(req.body);
+    
+            // Validate that the required keys exist.
+            if (!jsonBody.contains("frequency") || !jsonBody.contains("debug")) {
+                res.status = 500;
+                std::cout << "PUT /configure: Missing required parameters: frequency and debug\n";
+                res.set_content("PUT /configure: Missing required parameters: frequency and debug\n", "text/plain");
+                return;
+            }
+    
+            // Extract and validate the configuration parameters.
+            int newFrequency = jsonBody["frequency"];
+            bool newDebug = jsonBody["debug"];
+    
+            if (newFrequency <= 0) {
+                res.status = 500;
+                std::cout << "PUT /configure: Frequency must be positive\n";
+                res.set_content("PUT /configure: Frequency must be positive\n", "text/plain");
+                return;
+            }
+    
+            // Update the global configuration variables.
+            // (Assuming freq and debug are declared at a global or appropriately accessible scope.)
+            freq = newFrequency;
+            debug = newDebug ? 1 : 0;
+    
+            res.status = 200;
+            std::cout << "PUT /configure: Configuration updated successfully\n";
+            res.set_content("PUT /configure: Configuration updated successfully\n", "text/plain");
+        } catch (const std::exception &e) {
+            res.status = 500;
+            std::cout << "PUT /configure: Invalid JSON format: " + std::string(e.what()) + "\n"; 
+            res.set_content("PUT /configure: Invalid JSON format: " + std::string(e.what()) + "\n", "text/plain");
+        }
+    });
+    
+    
     svr.listen("localhost", 7099); // default params
 
     while (true){
