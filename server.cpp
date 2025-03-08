@@ -64,60 +64,56 @@ int main() {
         server.start();
         std::cout << "HTTP server started on localhost:7099\n";
 
-        // **Step 5: Continuous Serial Port Reading**
+        // **Step 5: Serial Port Reading (if start invoked )**
         char buffer[256];
         std::string data;
         while (!stop_flag) {
-            int bytesRead = read(serial.getFileDescriptor(), buffer, sizeof(buffer) - 1);
-            if (bytesRead > 0) {
-                buffer[bytesRead] = '\0';
-                data += buffer;
+            if (server.isReading()) {  // Only read if enabled via /start
+                int bytesRead = read(serial.getFileDescriptor(), buffer, sizeof(buffer) - 1);
+                if (bytesRead > 0) {
+                    buffer[bytesRead] = '\0';
+                    data += buffer;
 
-                size_t newlinePos;
-                while ((newlinePos = data.find('\n')) != std::string::npos) {
-                    std::string message = data.substr(0, newlinePos);
-                    data.erase(0, newlinePos + 1);
+                    size_t newlinePos;
+                    while ((newlinePos = data.find('\n')) != std::string::npos) {
+                        std::string message = data.substr(0, newlinePos);
+                        data.erase(0, newlinePos + 1);
 
-                    float pressure, temperature, velocity;
-                    if (parseMessage(message, pressure, temperature, velocity)) {
-                        // Convert to __fp16 for storage
-                        __fp16 h_pressure = static_cast<__fp16>(pressure);
-                        __fp16 h_temperature = static_cast<__fp16>(temperature);
-                        __fp16 h_velocity = static_cast<__fp16>(velocity);
+                        float pressure, temperature, velocity;
+                        if (parseMessage(message, pressure, temperature, velocity)) {
+                            __fp16 h_pressure = static_cast<__fp16>(pressure);
+                            __fp16 h_temperature = static_cast<__fp16>(temperature);
+                            __fp16 h_velocity = static_cast<__fp16>(velocity);
 
-                        // Get current timestamp
-                        auto now = std::chrono::system_clock::now();
-                        auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
-                            now.time_since_epoch()).count();
+                            auto now = std::chrono::system_clock::now();
+                            auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+                                now.time_since_epoch()).count();
 
-                        // Create SensorData struct
-                        DatabaseManager::SensorData sensorData = {
-                            h_pressure, h_temperature, h_velocity, timestamp
-                        };
+                            DatabaseManager::SensorData sensorData = {
+                                h_pressure, h_temperature, h_velocity, timestamp
+                            };
 
-                        // Store data in the database
-                        if (db_manager.storeSensorData(sensorData)) {
-                            std::cout << "Data stored: P=" << pressure 
-                                      << ", T=" << temperature 
-                                      << ", V=" << velocity << "\n";
+                            if (db_manager.storeSensorData(sensorData)) {
+                                std::cout << "Data stored: P=" << pressure 
+                                          << ", T=" << temperature 
+                                          << ", V=" << velocity << "\n";
+                            } else {
+                                std::cerr << "Failed to store data\n";
+                            }
                         } else {
-                            std::cerr << "Failed to store data\n";
+                            std::cerr << "Invalid message format: " << message << "\n";
                         }
-                    } else {
-                        std::cerr << "Invalid message format: " << message << "\n";
+                    }
+                } else if (bytesRead < 0) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        std::cerr << "Error reading from serial port: " << strerror(errno) << "\n";
+                        break;
                     }
                 }
-            } else if (bytesRead < 0) {
-                if (errno != EAGAIN && errno != EWOULDBLOCK) {
-                    std::cerr << "Error reading from serial port: " << strerror(errno) << "\n";
-                    break;
-                }
             }
-            // Prevent CPU overuse
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
 
-        // **Step 6: Cleanup**
         server.stop();
         std::cout << "HTTP server stopped\n";
     } catch (const std::exception& e) {

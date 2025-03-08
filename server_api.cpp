@@ -95,20 +95,52 @@ std::vector<DatabaseManager::SensorData> DatabaseManager::getLastNMessages(int n
     return result;
 }
 
-// HTTPServer Implementation
+// HTTPServer Implementation. By default, doesn't read until /start command
 HTTPServer::HTTPServer(const std::string& host, int port,
-                       DatabaseManager& db_manager,
-                       int& frequency, bool& debug)
+    DatabaseManager& db_manager,
+    int& frequency, bool& debug)
     : host_(host), port_(port), db_manager_(db_manager),
-      frequency_(frequency), debug_(debug) {}
+    frequency_(frequency), debug_(debug), is_reading_(false) {}
+
+HTTPServer::~HTTPServer(){
+    stop();
+}
+
+void HTTPServer::start() {
+    registerEndpoints();
+    server_thread_ = std::thread([this]() {
+        svr_.listen(host_.c_str(), port_);
+    });
+}
+
+void HTTPServer::stop() {
+    svr_.stop();
+    if (server_thread_.joinable()) {
+        server_thread_.join();
+    }
+}
+bool HTTPServer::isReading() const { return is_reading_.load(); }
 
 void HTTPServer::registerEndpoints() {
-    svr_.Get("/start", [](const httplib::Request &, httplib::Response &res) {
-        res.set_content("'/start' got triggered\n", "text/plain");
+    svr_.Get("/start", [&](const httplib::Request &, httplib::Response &res) {
+        if(isReading()){ 
+            res.set_content("GET /start: Already reading\n", "text/plain");
+            res.status = 400; // Bad Request
+            return;
+         }
+        is_reading_.store(true);  // Enable reading
+        res.set_content("GET /start: Reading started\n", "text/plain");
+        res.status = 200;
     });
 
-    svr_.Get("/stop", [](const httplib::Request &, httplib::Response &res) {
-        res.set_content("'/stop' got triggered\n", "text/plain");
+    svr_.Get("/stop", [&](const httplib::Request &, httplib::Response &res) {
+        if(!isReading()){ 
+            res.set_content("GET /stop: Already stopped - was not reading before request\n", "text/plain");
+            res.status = 400; // Bad Request
+            return;
+         }
+        is_reading_.store(false);  // Disable reading
+        res.set_content("GET /stop: Reading stopped\n", "text/plain");
         res.status = 200;
     });
     
@@ -227,18 +259,4 @@ void HTTPServer::registerEndpoints() {
             res.set_content("Invalid JSON format: " + std::string(e.what()), "text/plain");
         }
     });
-}
-
-void HTTPServer::start() {
-    registerEndpoints();
-    server_thread_ = std::thread([this]() {
-        svr_.listen(host_.c_str(), port_);
-    });
-}
-
-void HTTPServer::stop() {
-    svr_.stop();
-    if (server_thread_.joinable()) {
-        server_thread_.join();
-    }
 }

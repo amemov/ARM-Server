@@ -10,6 +10,7 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
+#include <atomic>
 
 class DatabaseManager {
 private:
@@ -36,6 +37,8 @@ public:
                     bool& debug = *(new bool(false))); // Default value via reference
     ~DatabaseManager();
 
+    // Disable copy / assgin / move constructors
+
     void initializeDatabase();
     bool storeSensorData(const SensorData& data);
     std::vector<SensorData> getLastNMessages(int n); // New public method
@@ -50,14 +53,19 @@ private:
     int& frequency_;
     bool& debug_;
     std::thread server_thread_;
+    std::atomic<bool> is_reading_; 
 
 public:
-    HTTPServer(const std::string& host, int port, 
-               DatabaseManager& db_manager,
-               int& frequency, bool& debug);
+     HTTPServer(const std::string& host, int port,
+          DatabaseManager& db_manager,
+          int& frequency, bool& debug);
+     ~HTTPServer();
+
+     // Disable copy / assgin / move constructors
     
     void start();
     void stop();
+    bool isReading() const;
     void registerEndpoints();
 };
 
