@@ -1,5 +1,6 @@
 #include "server_api.cpp"
 #include "serial_interface.cpp"
+// remove some stuff from here already got put into .hpp of different classes
 #include <fcntl.h>
 #include <unistd.h>
 #include <sys/ioctl.h>
@@ -18,26 +19,7 @@
 #include <sqlite3.h>
 #include <chrono>
 // Manual definitions for termios2 and constants
-struct termios2 {
-    tcflag_t c_iflag;
-    tcflag_t c_oflag;
-    tcflag_t c_cflag;
-    tcflag_t c_lflag;
-    cc_t c_line;
-    cc_t c_cc[19];
-    speed_t c_ispeed;
-    speed_t c_ospeed;
-};
 
-#ifndef TCGETS2
-#define TCGETS2 _IOR('T', 0x2A, struct termios2)
-#endif
-#ifndef TCSETS2
-#define TCSETS2 _IOW('T', 0x2B, struct termios2)
-#endif
-#ifndef BOTHER
-#define BOTHER 0x1000
-#endif
 
 // Checks if physical port exists (assuming no one messes with image before server launch)
 bool fileExists(const std::string &filename) {
@@ -174,13 +156,10 @@ int main() {
         return 1;
     }
 
-    // Build your dynamic table name from command-line or environment variables
-    std::string tableName = "SensorData"; // Default name
-    // Assume user can override tableName here...
 
     // Create SQL statement dynamically
     std::stringstream sqlStream;
-    sqlStream << "CREATE TABLE IF NOT EXISTS " << tableName << " ("
+    sqlStream << "CREATE TABLE IF NOT EXISTS SensorData ("
             << "Port TEXT NOT NULL, "
             << "Frequency INTEGER NOT NULL, "
             << "Debug INTEGER NOT NULL CHECK (Debug IN (0, 1)), "

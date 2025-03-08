@@ -7,7 +7,7 @@ RUN apt-get update && apt-get install -y \
     g++ \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies: SQLite, and SOCAT
+# Install dependencies: SQLite, and SOCAT, and need GTEST to put here
 RUN apt-get update && apt-get install -y \
     sqlite3 \
     libsqlite3-dev \
