@@ -10,7 +10,7 @@
 #include <iostream>
 #include <cstring>
 #include <sys/stat.h>
-#include <sys/sysmacros.h>
+#include <sys/sysmacros.h> 
 
 // Forward declaration for termios2
 struct termios2;
@@ -23,7 +23,6 @@ private:
     int fd;
     int master_fd;
 
-    // Private methods
     bool validatePort();
     bool setupPhysicalPort();
     bool setupVirtualPort();
@@ -34,15 +33,20 @@ public:
     SerialInterface(const std::string& port = "/dev/ttyS11", int baud = 115000);
     ~SerialInterface();
 
+    void sendData(const std::string& data);
+
     // Getters
     int getFileDescriptor() const;
     const std::string& getPortName() const;
     bool isVirtual() const;
     int getBaudRate() const;
+    
 
-    // Disallow copying
+    // Disable copy / assgin / move constructors
     SerialInterface(const SerialInterface&) = delete;
     SerialInterface& operator=(const SerialInterface&) = delete;
+    SerialInterface(SerialInterface&&) = delete;
+    SerialInterface& operator=(SerialInterface&&) = delete;
 };
 
 #endif // SERIAL_INTERFACE_HPP

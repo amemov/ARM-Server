@@ -65,6 +65,18 @@ SerialInterface::~SerialInterface() {
     if(fd >= 0) close(fd);
     if(master_fd >= 0) close(master_fd);
 }
+void SerialInterface::sendData(const std::string& data){
+    if (fd < 0) {
+        throw std::runtime_error("Serial port not open");
+    }
+    ssize_t bytes_written = write(fd, data.c_str(), data.size());
+    if (bytes_written < 0) {
+        throw std::runtime_error("Failed to write to serial port: " + std::string(strerror(errno)));
+    }
+    if (static_cast<size_t>(bytes_written) != data.size()) {
+        std::cerr << "Warning: Not all bytes were written to serial port\n";
+    }
+}
 
 void SerialInterface::setCustomBaudRate() {
     struct termios2 tio;
