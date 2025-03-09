@@ -3,7 +3,7 @@
 // DatabaseManager Implementation
 DatabaseManager::DatabaseManager(const std::string& db_path, 
                                 const std::string& port_name,
-                                int& frequency, bool& debug)
+                                uint8_t& frequency, bool& debug)
     : port_name_(port_name), frequency_(frequency), debug_(debug) {
     if (sqlite3_open(db_path.c_str(), &db_) != SQLITE_OK) {
         throw std::runtime_error("Database error: " + std::string(sqlite3_errmsg(db_)));
@@ -44,7 +44,7 @@ void DatabaseManager::prepareStatements() {
     
     if (sqlite3_prepare_v2(db_, sql, -1, &insert_stmt_, nullptr) != SQLITE_OK) {
         throw std::runtime_error("Failed to prepare insert statement: " + 
-                                 std::string(sqlite3_errmsg(db_)));
+                                std::string(sqlite3_errmsg(db_)));
     }
 }
 
@@ -64,8 +64,9 @@ bool DatabaseManager::storeSensorData(const SensorData& data) {
 
 std::vector<DatabaseManager::SensorData> DatabaseManager::getLastNMessages(int n) {
     std::vector<SensorData> result;
+    
     std::string sql = "SELECT Pressure, Temperature, Velocity, Timestamp FROM SensorData "
-                      "WHERE Port = ? AND Frequency = ? AND Debug = ? ORDER BY Timestamp DESC LIMIT ?;";
+                    "WHERE Port = ? AND Frequency = ? AND Debug = ? ORDER BY Timestamp DESC LIMIT ?;";
     sqlite3_stmt* stmt;
     int rc = sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr);
     if (rc != SQLITE_OK) {
@@ -75,6 +76,10 @@ std::vector<DatabaseManager::SensorData> DatabaseManager::getLastNMessages(int n
     sqlite3_bind_int(stmt, 2, frequency_);
     sqlite3_bind_int(stmt, 3, (debug_ == true) ? 1 : 0);
     sqlite3_bind_int(stmt, 4, n);
+
+    // We are probably going to have more calls that actually request the existing data
+    // So the reserve should help us speed up the push_backs below. 
+    result.reserve(n); 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         SensorData data;
         const void* blobPressure = sqlite3_column_blob(stmt, 0);
@@ -97,17 +102,13 @@ std::vector<DatabaseManager::SensorData> DatabaseManager::getLastNMessages(int n
 }
 
 // Updates the value using validated result in PUT /config command
-void DatabaseManager::updFrequency(const int& freq){
-    frequency_ = freq;
-}
-void DatabaseManager::updDebug(const bool& debug){
-    debug_ = debug;
-}
+void DatabaseManager::updFrequency(const uint8_t& freq){ frequency_ = freq; }
+void DatabaseManager::updDebug(const bool& debug){ debug_ = debug; }
 
 // HTTPServer Implementation. By default, doesn't read until /start command
 HTTPServer::HTTPServer(const std::string& host, int port,
                         DatabaseManager& db_manager,
-                        int& frequency, bool& debug,
+                        uint8_t& frequency, bool& debug,
                         SerialInterface& serial)
     : host_(host), port_(port), db_manager_(db_manager),
     frequency_(frequency), debug_(debug), is_reading_(false),
@@ -122,21 +123,13 @@ void HTTPServer::start() {
     server_thread_ = std::thread([this]() {
         svr_.listen(host_.c_str(), port_);
     });
-    read_thread_ = std::thread([this]() { 
-        readFromSerial(); 
-    });
 }
 
 void HTTPServer::stop() {
-    read_cmd = true;
     svr_.stop();
-    if (read_thread_.joinable()){
-        read_thread_.join();
-    }
     if (server_thread_.joinable()) {
         server_thread_.join();
     }
-    
 }
 bool HTTPServer::isReading() const { 
     return is_reading_.load(); 
@@ -152,7 +145,6 @@ void HTTPServer::registerEndpoints() {
         }
         try {
             std::unique_lock<std::mutex> lock(cmd_mutex_);
-
             // Send Start command request
             pending_cmd_ = "$0";
             cmd_response_received_ = false;
@@ -178,13 +170,14 @@ void HTTPServer::registerEndpoints() {
                 res.set_content("GET /start: Reading started\n", "text/plain");
                 res.status = 200;
             } else {
+                std::cout << "GET /start: Device error - " << cmd_response_  << "\n";
                 res.set_content("GET /start: Device error - " + cmd_response_ +"\n", "text/plain");
                 res.status = 500;
             }
             
         } catch (const std::exception& e) {
-            res.set_content("Error sending start command: " + std::string(e.what()), "text/plain");
-            std::cout << "GET /start: Error: " << e.what() << "\n";
+            std::cout << "GET /start: Error sending start command - " << e.what() << "\n";
+            res.set_content("GET /start: Error sending start command: " + std::string(e.what()) + "\n", "text/plain");
             res.status = 500; // Internal Server Error
         }
     });
@@ -198,7 +191,6 @@ void HTTPServer::registerEndpoints() {
         }
         try {
             std::unique_lock<std::mutex> lock(cmd_mutex_);
-
             // Send Stop command request
             pending_cmd_ = "$1";
             cmd_response_received_ = false;
@@ -224,13 +216,14 @@ void HTTPServer::registerEndpoints() {
                 res.set_content("GET /stop: Reading stopped\n", "text/plain");
                 res.status = 200;
             } else {
+                std::cout << "GET /stop: Device error - " << cmd_response_ << "\n";
                 res.set_content("GET /stop: Device error - " + cmd_response_ +"\n", "text/plain");
                 res.status = 500;
             }
             
         } catch (const std::exception& e) {
-            res.set_content("Error sending stop command: " + std::string(e.what()), "text/plain");
-            std::cout << "GET /stop: Error: " << e.what() << "\n";
+            std::cout << "GET /stop: Error sending stop command - " << e.what() << "\n";
+            res.set_content("GET /stop: Error sending stop command - " + std::string(e.what()) + "\n", "text/plain");
             res.status = 500;
         }
     });
@@ -239,7 +232,7 @@ void HTTPServer::registerEndpoints() {
         if (!req.has_param("limit")) {
             res.status = 400; // Bad Request
             std::cout << "GET /messages: Missing 'limit' parameter\n";
-            res.set_content("Missing 'limit' parameter", "text/plain");
+            res.set_content("GET /messages:  Missing 'limit' parameter\n", "text/plain");
             return;
         }
         int limit;
@@ -249,7 +242,7 @@ void HTTPServer::registerEndpoints() {
         } catch (const std::exception &e) {
             res.status = 400; // Bad Request
             std::cout << "GET /messages: Invalid 'limit' parameter: " << e.what() << "\n";
-            res.set_content("Invalid 'limit' parameter: " + std::string(e.what()), "text/plain");
+            res.set_content("GET /messages: Invalid 'limit' parameter: " + std::string(e.what()) + "\n", "text/plain");
             return;
         }
         try {
@@ -274,8 +267,8 @@ void HTTPServer::registerEndpoints() {
             res.set_content(jsonArray.dump(), "application/json");
         } catch (const std::exception &e) {
             res.status = 500; // Internal Server Error
-            std::cout << "GET /messages: Error retrieving messages: " << e.what() << "\n";
-            res.set_content("Error retrieving messages: " + std::string(e.what()), "text/plain");
+            std::cout << "GET /messages: Error retrieving messages - " << e.what() << "\n";
+            res.set_content("GET /messages: Error retrieving messages - " + std::string(e.what()) + "\n", "text/plain");
         }
     });
     
@@ -330,8 +323,8 @@ void HTTPServer::registerEndpoints() {
             res.set_content(responseJson.dump(), "application/json");
         } catch (const std::exception &e) {
             res.status = 500;
-            std::cout << "GET /device: Error retrieving device metadata: " << e.what() << "\n";
-            res.set_content("Error retrieving device metadata: " + std::string(e.what()), "text/plain");
+            std::cout << "GET /device: Error retrieving device metadata - " << e.what() << "\n";
+            res.set_content("GET /device: Error retrieving device metadata - " + std::string(e.what()) + "\n", "text/plain");
         }
     });
     
@@ -341,7 +334,7 @@ void HTTPServer::registerEndpoints() {
             if (!jsonBody.contains("frequency") || !jsonBody.contains("debug")) {
                 res.status = 400;
                 std::cout << "PUT /configure: Missing required parameters: frequency and debug\n";
-                res.set_content("Missing required parameters: frequency and debug", "text/plain");
+                res.set_content("PUT /configure: Missing required parameters: frequency and debug\n", "text/plain");
                 return;
             }
             int newFrequency = jsonBody["frequency"];
@@ -349,7 +342,7 @@ void HTTPServer::registerEndpoints() {
             if (newFrequency <= 0 || newFrequency > 255) {
                 res.status = 400;
                 std::cout << "PUT /configure: Frequency must be between 1 and 255\n";
-                res.set_content("Frequency must be between 1 and 255", "text/plain");
+                res.set_content("PUT /configure: Frequency must be between 1 and 255\n", "text/plain");
                 return;
             }
             std::unique_lock<std::mutex> lock(cmd_mutex_);
@@ -372,9 +365,15 @@ void HTTPServer::registerEndpoints() {
                 
             } else {
                 if (cmd_response_ == "ok") {
-                    // Update server configuration only after successful response
+                    // Upd server configuration after successful response
                     frequency_ = newFrequency;
                     debug_ = newDebug;
+                    // Upd database-manager
+                    db_manager_.updFrequency(frequency_);
+                    db_manager_.updDebug(debug_);
+                    // Upd serial port
+                    serial_.updBaudRate(frequency_ * 1000);
+
                     std::cout << "PUT /configure: Configuration updated and sent to device successfully\n";
                     res.set_content("PUT /configure: Configuration updated and sent to device successfully\n", "text/plain");
                     res.status = 200;
@@ -386,16 +385,16 @@ void HTTPServer::registerEndpoints() {
                     
                 } else {
                     res.status = 500;
-                    std::cout << "PUT /configure:  Unexpected response: " << cmd_response_ << "\n";
-                    res.set_content("PUT /configure:  Unexpected response: " + cmd_response_ + "\n", "text/plain");
+                    std::cout << "PUT /configure: Unexpected response: " << cmd_response_ << "\n";
+                    res.set_content("PUT /configure: Unexpected response: " + cmd_response_ + "\n", "text/plain");
                 }
             }
 
             
         } catch (const std::exception& e) {
             res.status = 500;
-            std::cout << "PUT /configure: Error: " << e.what() << "\n";
-            res.set_content("Error: " + std::string(e.what()), "text/plain");
+            std::cout << "PUT /configure: Error - " << e.what() << "\n";
+            res.set_content("PUT /configure: Error - " + std::string(e.what()) + "\n", "text/plain");
         }
     });
 }
@@ -405,66 +404,4 @@ std::string trim(const std::string &s) {
     size_t start = s.find_first_not_of(" \t\n\r");
     size_t end = s.find_last_not_of(" \t\n\r");
     return (start == std::string::npos) ? "" : s.substr(start, end - start + 1);
-}
-void HTTPServer::readFromSerial() {
-    char buffer[256];
-    std::string remaining_data;
-    while (!read_cmd) {  // Use proper termination condition
-        int bytes_read = read(serial_.getFileDescriptor(), buffer, sizeof(buffer));
-        if (bytes_read > 0) {
-            remaining_data += std::string(buffer, bytes_read);
-            size_t newline_pos;
-            while ((newline_pos = remaining_data.find('\n')) != std::string::npos) {
-                std::string line = remaining_data.substr(0, newline_pos);
-                remaining_data.erase(0, newline_pos + 1);
-
-                // Debug raw input
-                std::cout << "DEBUG: Processing line: " << line << "\n";
-
-                if (line.empty()) continue;
-                
-                // Handle all command responses
-                if (line[0] == '$') {
-                    std::lock_guard<std::mutex> lock(cmd_mutex_);
-                    
-                    // Split into command and status
-                    size_t first_comma = line.find(',');
-                    std::string received_prefix = line.substr(0, first_comma);
-                    std::string status;
-
-                    // For configure command ($2)
-                    if (received_prefix == "$2") {
-                        size_t last_comma = line.find_last_of(',');
-                        if (last_comma != std::string::npos && last_comma > first_comma) {
-                            received_prefix = line.substr(0, last_comma);
-                            status = line.substr(last_comma + 1);
-                        }
-                    } 
-                    // For start/stop commands ($0/$1)
-                    else if (received_prefix == "$0" || received_prefix == "$1") {
-                        if (first_comma != std::string::npos) {
-                            status = line.substr(first_comma + 1);
-                        }
-                    }
-
-                    // Normalize status
-                    status = trim(status);
-                    std::transform(status.begin(), status.end(), status.begin(), ::tolower);
-
-                    // Match with pending command
-                    if (received_prefix == pending_cmd_) {
-                        if (status == "ok") {
-                            cmd_response_ = "ok";
-                        } else if (status == "invalid command") {
-                            cmd_response_ = "invalid command";
-                        } else {
-                            cmd_response_ = "invalid_response";
-                        }
-                        cmd_response_received_ = true;
-                        cmd_cv_.notify_one();
-                    }
-                }
-            }
-        }
-    }
 }

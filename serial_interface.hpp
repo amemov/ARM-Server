@@ -41,7 +41,9 @@ public:
     bool isVirtual() const;
     int getBaudRate() const;
     
-
+    // Setter
+    void updBaudRate(const int& baud);
+    
     // Disable copy / assgin / move constructors
     SerialInterface(const SerialInterface&) = delete;
     SerialInterface& operator=(const SerialInterface&) = delete;

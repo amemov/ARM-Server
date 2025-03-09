@@ -104,3 +104,15 @@ int SerialInterface::getFileDescriptor() const { return fd; }
 const std::string& SerialInterface::getPortName() const { return port_name; }
 bool SerialInterface::isVirtual() const { return is_virtual; }
 int SerialInterface::getBaudRate() const { return baud_rate; }
+
+// Setter
+void SerialInterface::updBaudRate(const int& baud) {
+    baud_rate = baud;
+    
+    // If we are using a physical port, update the hardware settings
+    if (!is_virtual) {
+        setCustomBaudRate();
+    } else {
+        std::cout << "Virtual port: local baud rate updated to " << baud << std::endl;
+    }
+}
