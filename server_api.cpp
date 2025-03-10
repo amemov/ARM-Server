@@ -32,7 +32,7 @@ DatabaseManager::DatabaseManager(const std::string& db_path,
     }
     
 
-    // Step 2: Fallback to default path if needed
+    // Step 2: Backtrack to default path if needed
     if (use_default) {
         final_db_path = default_db_path;
     }
@@ -72,6 +72,7 @@ void DatabaseManager::createTableIfNotExists() {
     std::cout << "DatabaseManager: Table created (or verified) successfully.\n";
 }
 
+// Bind Insertion Statement 
 void DatabaseManager::prepareStatements() {
     const char* sql = 
         "INSERT INTO SensorData (Port, Frequency, Debug, Pressure, Temperature, Velocity, Timestamp) "
@@ -169,8 +170,8 @@ std::vector<DatabaseManager::SensorData> DatabaseManager::getLastNMessages(int n
 }
 
 // Updates the value using validated result in PUT /config command
-void DatabaseManager::updFrequency(const uint8_t& freq){ frequency_ = freq; }
-void DatabaseManager::updDebug(const bool& debug){ debug_ = debug; }
+void DatabaseManager::updFrequency(const uint8_t& freq) { frequency_ = freq; }
+void DatabaseManager::updDebug(const bool& debug) { debug_ = debug; }
 
 // HTTPServer Implementation. By default, doesn't read until /start command
 HTTPServer::HTTPServer(const std::string& host, int port,
@@ -188,6 +189,7 @@ HTTPServer::HTTPServer(const std::string& host, int port,
             host_ = "localhost";
         }
 
+        // Validate the port is not priviliged 
         int default_port = 7100;
         if(port_ < 1023){
             std::cerr << "Invalid port '" << port_ << "': " << "Attempt to access priviliged port."
@@ -214,10 +216,13 @@ void HTTPServer::stop() {
         server_thread_.join();
     }
 }
+
+// GET /start invoked successfully at some point and no GET /stop so far?
 bool HTTPServer::isReading() const { 
     return is_reading_.load(); 
 }
 
+// Defines the HTTP commands for server
 void HTTPServer::registerEndpoints() {
     svr_.Get("/start", [&](const httplib::Request &, httplib::Response &res) {
         if (isReading()) {
@@ -432,7 +437,7 @@ void HTTPServer::registerEndpoints() {
             // Prepare and send the configure command
             pending_cmd_ = "$2," + std::to_string(newFrequency) + "," + (newDebug ? "1" : "0");
             cmd_response_received_ = false;
-            serial_.sendData(pending_cmd_ + "\n"); // Send "$2,v1,v2\n"
+            serial_.sendData(pending_cmd_ + "\n"); // E.g, sends "$2,v1,v2\n" over UART
 
             // Wait for response or timeout (10 seconds)
             bool response_valid = cmd_cv_.wait_for(
@@ -451,9 +456,11 @@ void HTTPServer::registerEndpoints() {
                     // Upd server configuration after successful response
                     frequency_ = newFrequency;
                     debug_ = newDebug;
+
                     // Upd database-manager
                     db_manager_.updFrequency(frequency_);
                     db_manager_.updDebug(debug_);
+
                     // Upd serial port
                     serial_.updBaudRate(frequency_ * 1000);
 
@@ -500,8 +507,11 @@ bool HTTPServer::isValidHostname(const std::string &hostname) {
     freeaddrinfo(result);
     return true;
 }
+
+// Getters
 int HTTPServer::getPort() const { return port_; }
 std::string HTTPServer::getHost() const { return host_; }
+
 // Reads '$[command],[status]' from serial after /start /stop /configure
 // Sent a request to the connected device 
 std::string trim(const std::string &s) {

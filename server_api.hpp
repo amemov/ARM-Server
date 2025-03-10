@@ -59,7 +59,6 @@ public:
     DatabaseManager(DatabaseManager&&) = delete;
     DatabaseManager& operator=(DatabaseManager&&) = delete;
 
-    void initializeDatabase();
     bool storeSensorData(const SensorData& data);
     std::vector<SensorData> getLastNMessages(int n); // Return N messages that match port, freq, debug
     
@@ -90,7 +89,7 @@ public:
                SerialInterface& serial);
      ~HTTPServer();
 
-    // Temporary measure
+    // Not ideal, should be as private =/
     std::mutex cmd_mutex_;                     // Protects pending command data
     std::condition_variable cmd_cv_;           // Notifies when response arrives
     std::string pending_cmd_;                  // Currently awaited command (e.g., "$0")

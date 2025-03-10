@@ -64,6 +64,8 @@ SerialInterface::~SerialInterface() {
     if(fd >= 0) close(fd);
     if(master_fd >= 0) close(master_fd);
 }
+
+// Tries to send data - in case it didn't succeed, throws an error.
 void SerialInterface::sendData(const std::string& data){
     if (fd < 0) {
         throw std::runtime_error("Serial port not open");
@@ -77,6 +79,7 @@ void SerialInterface::sendData(const std::string& data){
     }
 }
 
+// Used for physical ports only
 void SerialInterface::setCustomBaudRate() {
     struct termios2 tio;
     if(ioctl(fd, TCGETS2, &tio) < 0) {

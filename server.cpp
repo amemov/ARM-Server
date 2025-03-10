@@ -23,7 +23,7 @@ void signalHandler(int signum) {
 }
 
 int main(int argc, char* argv[]) {
-    // Set up signal handling for SIGINT(Ctrl C) and SIGTERM
+    // Set up signal handling for SIGINT and SIGTERM
     signal(SIGINT, signalHandler); 
     signal(SIGTERM, signalHandler);
     bool debug = false;       // Default: debug mode disabled
@@ -145,11 +145,9 @@ int main(int argc, char* argv[]) {
                   << (serial.isVirtual() ? " (virtual)" : " (physical)") << "\n";
 
         /* Step 2: Initialize DatabaseManager */
-            // Default database path "database.db", using port name from SerialInterface
         DatabaseManager db_manager(db_path, serial.getPortName(), frequency, debug);
 
         /* Step 3: Initialize HTTPServer */
-            // Default host "localhost" and port 7099
         HTTPServer server(host_name, server_port, db_manager, frequency, debug, serial);
 
         /* Step 4: Start the HTTP Server */
@@ -192,7 +190,7 @@ int main(int argc, char* argv[]) {
                                     server.pending_cmd_.clear(); // Reset pending command
                                     continue;
                                 }
-                                // CMD matches, check where to map the status
+                                // CMD matches, get the status of the request
                                 if (received_prefix == "$2") {
                                     size_t last_comma = message.find_last_of(',');
                                     if (last_comma != std::string::npos && last_comma > first_comma) {
@@ -207,7 +205,7 @@ int main(int argc, char* argv[]) {
 
                                 status = trim(status);
                                 std::transform(status.begin(), status.end(), status.begin(), ::tolower);
-
+                                
                                 if (received_prefix == server.pending_cmd_) {
                                     if (status == "ok") {
                                         server.cmd_response_ = "ok";

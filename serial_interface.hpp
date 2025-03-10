@@ -30,7 +30,7 @@ public:
     SerialInterface(const std::string& port = "/dev/ttyUSB0", int baud = 115000);
     ~SerialInterface();
 
-    void sendData(const std::string& data);
+    void sendData(const std::string& data); 
 
     // Getters
     int getFileDescriptor() const;
