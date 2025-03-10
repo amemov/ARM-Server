@@ -5,6 +5,7 @@
 #include "httplib.h"
 #include "nlohmann/json.hpp"
 #include <string>
+#include <cstring>
 #include <algorithm>
 #include <memory>
 #include <chrono>
@@ -14,6 +15,10 @@
 #include <atomic>
 #include <mutex> 
 #include <condition_variable>
+#include <filesystem>
+#include <netdb.h>
+
+namespace fs = std::filesystem; // to make code more readable
 
 class DatabaseManager {
 private:
@@ -24,7 +29,14 @@ private:
     
     void createTableIfNotExists();
     void prepareStatements();
+    bool isPathRestricted(const fs::path& path);
     sqlite3_stmt* insert_stmt_ = nullptr;
+
+    const std::vector<fs::path> restricted_dirs = {
+          "/bin", "/boot", "/dev", "/etc", "/lib", 
+          "/lib32", "/lib64", "/proc", "/root", "/run", 
+          "/sbin", "/snap", "/sys", "/usr", "/var"
+     };
 
 public:
     struct SensorData {
@@ -68,6 +80,8 @@ private:
     std::thread server_thread_;                // Thread to run the server ops
     std::atomic<bool> is_reading_;             // Flag to check if can read messages from device
 
+    bool isValidHostname(const std::string &hostname);
+
 public:
      HTTPServer(const std::string& host, int port,
                DatabaseManager& db_manager,
@@ -92,6 +106,10 @@ public:
     void stop();
     bool isReading() const;
     void registerEndpoints();
+
+    // Getter
+    int getPort() const;
+    std::string getHost() const;
 };
 
 // Some functions to work with strings - might be a good idea to create a separate API for it

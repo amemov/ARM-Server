@@ -5,11 +5,46 @@ DatabaseManager::DatabaseManager(const std::string& db_path,
                                 const std::string& port_name,
                                 uint8_t& frequency, bool& debug)
     : port_name_(port_name), frequency_(frequency), debug_(debug) {
-    if (sqlite3_open(db_path.c_str(), &db_) != SQLITE_OK) {
+    
+        const std::string default_db_path = "database.db";
+    std::string final_db_path;
+
+    // Step 1: Validate user-provided path (do that if path is not default)
+    bool use_default = false;
+    if(db_path != default_db_path){
+        try {
+            if (isPathRestricted(db_path)) {
+                throw std::runtime_error("Path is in restricted directory");
+            }
+    
+            // Create parent directories if needed
+            fs::path user_path(db_path);
+            fs::create_directories(user_path.parent_path());
+    
+            final_db_path = db_path;
+        } catch (const std::exception& e) {
+            std::cerr << "Invalid database path '" << db_path << "': " << e.what()
+                      << "\nFalling back to default path: " << default_db_path << "\n";
+            use_default = true;
+        }
+    }else{
+        use_default = true;
+    }
+    
+
+    // Step 2: Fallback to default path if needed
+    if (use_default) {
+        final_db_path = default_db_path;
+    }
+
+    // Step 3: Open the database
+    if (sqlite3_open(final_db_path.c_str(), &db_) != SQLITE_OK) {
         throw std::runtime_error("Database error: " + std::string(sqlite3_errmsg(db_)));
     }
     createTableIfNotExists();
     prepareStatements();
+
+    std::cout << "Database initialized at: " << final_db_path << "\n";
 }
 
 DatabaseManager::~DatabaseManager() {
@@ -46,6 +81,38 @@ void DatabaseManager::prepareStatements() {
         throw std::runtime_error("Failed to prepare insert statement: " + 
                                 std::string(sqlite3_errmsg(db_)));
     }
+}
+
+// Validate if a path is in a restricted directory
+bool DatabaseManager::isPathRestricted(const fs::path& path) {
+    try {
+        const fs::path abs_path = fs::absolute(path);
+        const fs::path parent_dir = abs_path.parent_path();
+        const fs::path canonical_parent = fs::canonical(parent_dir);
+
+        // Normalize paths with trailing slashes for accurate comparison
+        auto normalize = [](const fs::path& p) {
+            std::string s = p.string();
+            if (s.back() != '/') s += '/';
+            return s;
+        };
+
+        const std::string parent_path = normalize(canonical_parent);
+
+        for (const auto& restricted : restricted_dirs) {
+            const fs::path canonical_restricted = fs::canonical(restricted);
+            const std::string restricted_path = normalize(canonical_restricted);
+
+            // Check if parent is inside a restricted directory
+            if (parent_path.starts_with(restricted_path)) {
+                return true;
+            }
+        }
+    } catch (const fs::filesystem_error&) {
+        // Invalid path (e.g., non-existent parent directory)
+        return true;
+    }
+    return false;
 }
 
 bool DatabaseManager::storeSensorData(const SensorData& data) {
@@ -112,7 +179,23 @@ HTTPServer::HTTPServer(const std::string& host, int port,
                         SerialInterface& serial)
     : host_(host), port_(port), db_manager_(db_manager),
     frequency_(frequency), debug_(debug), is_reading_(false),
-    serial_(serial) {}
+    serial_(serial) {
+
+        // Validate server name (hostname)
+        if (!isValidHostname(host_) || host_.length() == 0) {
+            std::cerr << "Invalid host name '" << host_ 
+                    << "'. Falling back to default host: localhost\n";
+            host_ = "localhost";
+        }
+
+        int default_port = 7100;
+        if(port_ < 1023){
+            std::cerr << "Invalid port '" << port_ << "': " << "Attempt to access priviliged port."
+                  << "\nFalling back to default port: " << 7100 << "\n";
+            port_ = 7100;
+        }
+
+    }
 
 HTTPServer::~HTTPServer(){
     stop();
@@ -398,6 +481,27 @@ void HTTPServer::registerEndpoints() {
         }
     });
 }
+// Returns true if the hostname is valid (i.e. resolvable)
+bool HTTPServer::isValidHostname(const std::string &hostname) {
+    if (hostname.empty()) return false;  // Reject empty names
+
+    struct addrinfo hints;
+    struct addrinfo *result = nullptr;
+
+    std::memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;      // Allow IPv4 or IPv6
+    hints.ai_socktype = SOCK_STREAM;  // Any type of stream socket
+
+    // Try to resolve the hostname using a well-known service (e.g., "http")
+    int ret = getaddrinfo(hostname.c_str(), "http", &hints, &result);
+    if (ret != 0) {
+        return false;
+    }
+    freeaddrinfo(result);
+    return true;
+}
+int HTTPServer::getPort() const { return port_; }
+std::string HTTPServer::getHost() const { return host_; }
 // Reads '$[command],[status]' from serial after /start /stop /configure
 // Sent a request to the connected device 
 std::string trim(const std::string &s) {

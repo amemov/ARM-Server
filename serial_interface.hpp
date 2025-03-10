@@ -23,14 +23,11 @@ private:
     int fd;
     int master_fd;
 
-    bool validatePort();
-    bool setupPhysicalPort();
-    bool setupVirtualPort();
     void setCustomBaudRate();
     static bool isPTY(int fd);
 
 public:
-    SerialInterface(const std::string& port = "/dev/ttyS11", int baud = 115000);
+    SerialInterface(const std::string& port = "/dev/ttyUSB0", int baud = 115000);
     ~SerialInterface();
 
     void sendData(const std::string& data);

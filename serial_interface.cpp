@@ -26,37 +26,36 @@ struct termios2 {
 SerialInterface::SerialInterface(const std::string& port, int baud) 
     : port_name(port), baud_rate(baud), is_virtual(false), fd(-1), master_fd(-1) 
 {
+    const std::string default_port = "/dev/ttyUSB0"; 
     struct stat buffer;
-    if(stat(port_name.c_str(), &buffer) == 0) {
-        fd = open(port_name.c_str(), O_RDWR | O_NOCTTY);
-        if(fd < 0) {
-            throw std::runtime_error("Error opening port: " + std::string(strerror(errno)));
+
+    // First check if the user-provided port exists
+    if (stat(port.c_str(), &buffer) == 0) {
+        // Try to open user-provided port
+        fd = open(port.c_str(), O_RDWR | O_NOCTTY);
+        if (fd < 0) {
+            std::cerr << "Error opening port '" << port << "'. Trying default port '" << default_port << "'\n";
+            port_name = default_port;
+            fd = open(default_port.c_str(), O_RDWR | O_NOCTTY);
+            if (fd < 0) {
+                throw std::runtime_error("Failed to open default port: " + std::string(strerror(errno)));
+            }
         }
-        is_virtual = isPTY(fd);
     } else {
-        // Create virtual port
-        master_fd = posix_openpt(O_RDWR | O_NOCTTY);
-        if(master_fd < 0 || grantpt(master_fd) < 0 || unlockpt(master_fd) < 0) {
-            close(master_fd);
-            throw std::runtime_error("PTY creation failed: " + std::string(strerror(errno)));
+        // User-provided port doesn't exist, try default
+        std::cerr << "Port '" << port << "' does not exist. Trying default port '" << default_port << "'\n";
+        port_name = default_port;
+        fd = open(default_port.c_str(), O_RDWR | O_NOCTTY);
+        if (fd < 0) {
+            throw std::runtime_error("Failed to open default port: " + std::string(strerror(errno)));
         }
-        
-        char* slaveName = ptsname(master_fd);
-        if(!slaveName) {
-            close(master_fd);
-            throw std::runtime_error("PTY naming failed: " + std::string(strerror(errno)));
-        }
-        
-        port_name = slaveName;
-        fd = open(slaveName, O_RDWR | O_NOCTTY);
-        if(fd < 0) {
-            close(master_fd);
-            throw std::runtime_error("Virtual port open failed: " + std::string(strerror(errno)));
-        }
-        is_virtual = true;
     }
 
-    if(!is_virtual) {
+    // After successful open, check if virtual
+    is_virtual = isPTY(fd);
+
+    // Set baud rate if physical port
+    if (!is_virtual) {
         setCustomBaudRate();
     }
 }
