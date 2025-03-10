@@ -4,6 +4,7 @@
 #include <sqlite3.h>
 #include "httplib.h"
 #include "nlohmann/json.hpp"
+#include "serial_interface.hpp"
 #include <string>
 #include <cstring>
 #include <algorithm>

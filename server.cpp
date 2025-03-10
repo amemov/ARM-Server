@@ -1,5 +1,4 @@
-#include "serial_interface.cpp"
-#include "server_api.cpp"  // Assumes this includes DatabaseManager and HTTPServer definitions
+#include "server_api.hpp" 
 #include <iostream>
 #include <string>
 #include <chrono>
@@ -153,12 +152,12 @@ int main(int argc, char* argv[]) {
             // Default host "localhost" and port 7099
         HTTPServer server(host_name, server_port, db_manager, frequency, debug, serial);
 
-        // Step 4: Start the HTTP Server**
+        /* Step 4: Start the HTTP Server */
         server.start();
         std::cout << "HTTP server started on "<< server.getHost() << ":" << server.getPort() << "\n";
 
 
-        // Step 5: Serial Port Reading - Answers to requests from device and Messages**
+        /* Step 5: Serial Port Reading - Answers to requests from device and Messages */
         char buffer[256];
         std::string data;
         while (!stop_flag) {
