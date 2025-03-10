@@ -69,25 +69,25 @@ To build the image:
 To run the container:
 ```
 docker run -t clone-server
-
 ```
-Expected output:
-```
-2025-03-10 01:59:50 Socat started in background (PID 8)
-2025-03-10 01:59:50 2025/03/10 05:59:50 socat[8] N PTY is /dev/pts/0
-2025-03-10 01:59:50 2025/03/10 05:59:50 socat[8] N PTY is /dev/pts/1
-2025-03-10 01:59:50 2025/03/10 05:59:50 socat[8] N starting data transfer loop with FDs [5,5] and [7,7]
-```
-
-After succesfully running the container, change folder and open server
-```
-cd build/
-./server
-```
-Now open a new bash window and type to open a new bash inside container. Using it you can send curl and echo messages to the server:
+Now you can open a new bash window and type the code below to open a new bash inside the container. Using it you can send curl and echo messages to the server:
 ```
 docker exec -it [container_id] bash
 ```
+After successfully opening a bash in the container, run socat to initialize the default virtual port:
+```
+socat -d -d PTY,raw,echo=0,link=/dev/ttyUSB0 PTY,raw,echo=0,link=/dev/ttyUSB1 &
+```
+Run again a ```docker exec``` command to open a new bash window and type:
+```
+./server 
+```
+Now with server and socat running, open a new bash using ```docker exec``` command above to send message over UART or signals to the server, send HTTP requests:
+```
+curl http://localhost:7100/start
+echo '$0,ok' >> /dev/ttyUSB1
+```
+
 
 
 
