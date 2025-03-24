@@ -1,4 +1,4 @@
-# Clone---Coding-Task
+# Server for Raspberry Pi
 Full Documentation is available in documentation.md file. 
 #### Requirements:
 ```
