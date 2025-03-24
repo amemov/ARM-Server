@@ -1,4 +1,4 @@
-# Server for Raspberry Pi
+# Server for ARM-based Computers (Raspberry Pi)
 Full Documentation is available in documentation.md file. 
 #### Requirements:
 ```
