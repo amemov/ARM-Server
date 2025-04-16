@@ -165,32 +165,3 @@ a separate table to lookup which string corresponds to which integer - that way 
                                             "Timestamp INTEGER NOT NULL"
                                             ");"
 
-
-- Some Design Decisions:
-    Frequency:
-        The doc said that the server should be overriding the connected device's Frequency by provided baudrate in CLI arguments, by configure command(Hz), and by via PUT (HTTP) - also Hz. And at the same time it says that it should take uint8, which has a range of [0:255]. I decided to change this requirement, becuase there is no way to store 9600 Hz frequency in 1 byte, so I opted to use KHz. I also assumed that the devices used the protocol like NRZ, where 1000 baudrate is equal to +- 1 KHz. 
-
-    Debug:
-        I chose to set it to integer in Database, to avoid messing with various text encodings, this ensures that it is stored using just 1 byte of memory.
-
-    Message Values:
-        We get 3 parameters from the port expressed as float16. Half-precision is not natively supported by SQLite,
-        so this leaves either 3 options: 
-        1. Waste space and use REAL, where each entry would waste 18 bytes ( 6 bytes * 3 parameters per message)
-        2. Store as BLOB or as INTEGER - no wasted space, but would require preprocessing to put the values in the Database,
-        and to output the values from database. For simplicity, I opted to use BLOB, since with INTEGER SQLite might internally
-        not enforce a 2 bytes representation. This way it ensures the storage is efficient
-    
-    Timestamp:
-        Follows the example in the task - expressed as Unix timestamp. Stored as INTEGER, 64 bits, for efficiency. 
-
-    HTTPServer:
-        Runs on a separate thread - uses std::atomic to check if we can read the messages, which is way faster than dealing with mutexes in C++
-        
-        void registerEndpoints() - uses std::unique_lock to lock the section for reading response for /start /stop /configure. Was thinking how to avoid mutexes here (since they tend to be quite heavy), but couldn't wrap my head around different alternatives 
-
-    Serial Interface:
-        When I was reading the requirements, I think it meant that the program is supposed to work purely with virtual serail ports, but just in case I also implemented a physical port implementation that in theory should work, assuming the baud rates match on both ends
-
-    Building the project files:
-        I was going to use Bazel, but they don't have binaries for ARM, so I did CMake file to build the project and test files. 
